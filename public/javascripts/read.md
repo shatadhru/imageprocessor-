@@ -6,8 +6,6 @@ const pdf = require("pdf-poppler");
 const sharp = require("sharp");
 const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
 
-
-
 const app = express();
 
 // ===== Multer setup (API upload) =====
@@ -54,41 +52,32 @@ const clearFolder = (folder) => {
   } else {
     fs.mkdirSync(folder, { recursive: true });
   }
-};const processImage = async (imgPath, outputPath, mode) => {
-  let sharpInstance = sharp(imgPath).removeAlpha();
+};
+
+// ===== Helper: Process image based on mode =====
+const processImage = async (imgPath, outputPath, mode) => {
+  let sharpInstance = sharp(imgPath);
 
   switch (mode) {
-    case PROCESSING_MODES.GRAYSCALE:
-     sharpInstance = sharpInstance
-  // 1️⃣ Grayscale (base clean)
-  .grayscale()
-
-  // 2️⃣ Strong but safe contrast
-  .linear(1.35, -18)
-
-
-
-  // 4️⃣ Invert → black → white
-  .negate({ alpha: false });
-
-      break;
-
     case PROCESSING_MODES.NEGATIVE:
-      sharpInstance = sharpInstance
-        .grayscale()
-        .negate({ alpha: false });
+      sharpInstance = sharpInstance.negate();
       break;
-
+    case PROCESSING_MODES.GRAYSCALE:
+      sharpInstance = sharpInstance
+        .negate()
+        .grayscale()
+        .sharpen()
+        .linear(1.3, -15);
+      break;
+    case PROCESSING_MODES.SEPIA:
+      sharpInstance = sharpInstance.tint({ r: 112, g: 66, b: 20 });
+      break;
+    case PROCESSING_MODES.NORMAL:
     default:
       break;
   }
 
-  await sharpInstance
-    .jpeg({
-      quality: 95,
-      chromaSubsampling: "4:4:4",
-    })
-    .toFile(outputPath);
+  await sharpInstance.toFile(outputPath);
 };
 
 // ===== Convert PDF to A4 with processed images and page numbers =====
@@ -122,19 +111,14 @@ const convertPDFToA4 = async (filePath, mode = PROCESSING_MODES.NORMAL) => {
     })
     .map((f) => path.join(outputDir, f));
 
- for (const [index, imgPath] of images.entries()) {
-  const outputFile = path.join(
-    processedDir,
-    `page_${String(index + 1).padStart(3, "0")}.jpeg`
-  );
-
-  const imageMode =
-    index === 0
-      ? PROCESSING_MODES.NORMAL     // ❌ first slide untouched
-      : PROCESSING_MODES.GRAYSCALE; // ✅ rest = heavy processing
-
-  await processImage(imgPath, outputFile, imageMode);
-}
+  // Process images
+  for (const [index, imgPath] of images.entries()) {
+    const outputFile = path.join(
+      processedDir,
+      `page_${String(index + 1).padStart(3, "0")}.jpeg`
+    );
+    await processImage(imgPath, outputFile, mode);
+  }
 
   // Embed processed images into A4 PDF
   const processedImages = fs
@@ -215,7 +199,7 @@ const convertPDFToA4 = async (filePath, mode = PROCESSING_MODES.NORMAL) => {
 
     if (count % (COLS * ROWS) === 0 && count < processedImages.length) {
       // Footer for PDF page
-      page.drawText("Unique Teaching Method", {
+      page.drawText("Shatadhru Innovations", {
         x: 20,
         y: 20,
         size: 10,
@@ -225,7 +209,7 @@ const convertPDFToA4 = async (filePath, mode = PROCESSING_MODES.NORMAL) => {
       page.drawText(`Page ${pdfPageNumber}`, {
         x: A4_WIDTH - 60,
         y: 20,
-        size: 12,
+        size: 10,
         font,
         color: rgb(0, 0, 0),
       });
@@ -245,7 +229,7 @@ const convertPDFToA4 = async (filePath, mode = PROCESSING_MODES.NORMAL) => {
   }
 
   // Last page footer
-  page.drawText("Unique Teaching Method", {
+  page.drawText("Made By Shatadhru", {
     x: 20,
     y: 20,
     size: 12,
@@ -361,11 +345,6 @@ app.post("/api/merge-pdf", upload.array("pdfs", 20), async (req, res) => {
       details: err.message,
     });
   }
-});
-
-
-app.get("/health", (req, res) => {
-  res.json({ status: "OK", message: "Server running" });
 });
 
 
